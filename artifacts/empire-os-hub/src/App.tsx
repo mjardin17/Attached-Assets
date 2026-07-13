@@ -8,6 +8,8 @@ import MissionBoardPage from '@/pages/MissionBoardPage';
 import EpisodesPage from '@/pages/EpisodesPage';
 import ContextFilesPage from '@/pages/ContextFilesPage';
 import SettingsPage from '@/pages/SettingsPage';
+import PipelinePage from '@/pages/PipelinePage';
+import ComposePage from '@/pages/ComposePage';
 
 function Router() {
   return (
@@ -17,6 +19,8 @@ function Router() {
         <Route path="/missions" component={MissionBoardPage} />
         <Route path="/episodes" component={EpisodesPage} />
         <Route path="/files" component={ContextFilesPage} />
+        <Route path="/pipeline" component={PipelinePage} />
+        <Route path="/compose" component={ComposePage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/:rest*" component={() => <div className="p-8 text-center text-muted-foreground">Page not found</div>} />
       </Switch>

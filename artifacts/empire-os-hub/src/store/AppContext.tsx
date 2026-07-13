@@ -49,6 +49,9 @@ export interface Episode {
   views: number;
   duration: string;
   channel: "GG" | "IL" | "LO" | "ED";
+  fileSizeMb?: string;
+  renderProgress?: number;
+  socialDraft?: string;
 }
 
 export interface Settings {

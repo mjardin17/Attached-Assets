@@ -1,4 +1,4 @@
-const CACHE_NAME = 'empire-os-cache-v1';
+const CACHE_NAME = 'empire-os-cache-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -8,9 +8,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        return cache.addAll(ASSETS_TO_CACHE);
-      })
+      .then((cache) => cache.addAll(ASSETS_TO_CACHE))
   );
   self.skipWaiting();
 });
@@ -30,28 +28,22 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first: always try the network first so a fresh deploy/build is
+// served immediately. Only fall back to the cached shell when offline.
+// This intentionally avoids a stale cache-first strategy which can pin an
+// old broken bundle in the browser indefinitely.
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request)
+    fetch(event.request)
       .then((response) => {
-        if (response) {
-          return response;
+        if (response && response.status === 200 && response.type === 'basic' && event.request.url.startsWith('http')) {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
         }
-        return fetch(event.request).then(
-          (response) => {
-            if(!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                if (event.request.url.startsWith('http')) {
-                  cache.put(event.request, responseToCache);
-                }
-              });
-            return response;
-          }
-        );
+        return response;
       })
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
   );
 });

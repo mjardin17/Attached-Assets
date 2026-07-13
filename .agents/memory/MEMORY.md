@@ -1,0 +1,1 @@
+- [PWA service worker masks dev fixes](sw-dev-caching.md) — a cache-first SW registered in dev can permanently pin a stale/broken bundle in the browser, making code fixes appear not to work.
