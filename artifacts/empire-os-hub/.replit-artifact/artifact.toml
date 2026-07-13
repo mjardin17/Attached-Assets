@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Empire OS Hub"
+version = "1.0.0"
+id = "artifacts/empire-os-hub"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24092
+
+[services.development]
+run = "pnpm --filter @workspace/empire-os-hub run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/empire-os-hub", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/empire-os-hub/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24092"
+BASE_PATH = "/"
