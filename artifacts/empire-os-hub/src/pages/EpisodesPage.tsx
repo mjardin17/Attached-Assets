@@ -1,4 +1,4 @@
-import { useAppStore, Episode } from "@/store/AppContext";
+import { createEpisodeDefaults, useAppStore, Episode } from "@/store/AppContext";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -129,7 +129,7 @@ function CreateEpisodeDialog() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    addEpisode({
+    addEpisode(createEpisodeDefaults({
       id: formData.id,
       title: formData.title,
       channel: formData.channel as any,
@@ -138,8 +138,9 @@ function CreateEpisodeDialog() {
       renderStatus: "pending",
       uploadStatus: "pending",
       url: "",
-      views: 0
-    });
+      views: 0,
+      stage: "ideas",
+    }));
     setOpen(false);
   };
 

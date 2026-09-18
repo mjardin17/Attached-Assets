@@ -39,6 +39,22 @@ export interface Mission {
   projectId: string;
 }
 
+export type PipelineStage = "ideas" | "script" | "thumbnail" | "render" | "publish" | "live";
+export type ApprovalGate = "script" | "thumbnail" | "render" | "publish";
+export type ApprovalStatus = "pending" | "approved" | "changes_requested";
+export type PublishPlatform = "youtube" | "instagram" | "facebook" | "x" | "linkedin";
+
+export interface GateApproval {
+  status: ApprovalStatus;
+  updatedAt?: string;
+}
+
+export interface ThumbnailVariant {
+  id: string;
+  label: string;
+  status: "placeholder" | "selected";
+}
+
 export interface Episode {
   id: string;
   title: string;
@@ -52,6 +68,13 @@ export interface Episode {
   fileSizeMb?: string;
   renderProgress?: number;
   socialDraft?: string;
+  stage: PipelineStage;
+  approvals: Record<ApprovalGate, GateApproval>;
+  thumbnailVariants: ThumbnailVariant[];
+  publishChecklist: Record<PublishPlatform, boolean>;
+  createdAt: string;
+  publishedAt?: string;
+  intelSource?: string;
 }
 
 export interface Settings {
@@ -71,6 +94,164 @@ interface AppState {
   activeProjectId: string;
   activeAgentId: AgentId;
   loadedFileIds: string[];
+}
+
+export const PIPELINE_STAGES: { id: PipelineStage; label: string; shortLabel: string }[] = [
+  { id: "ideas", label: "Ideas", shortLabel: "Ideas" },
+  { id: "script", label: "Script", shortLabel: "Script" },
+  { id: "thumbnail", label: "Thumbnail", shortLabel: "Thumb" },
+  { id: "render", label: "Render", shortLabel: "Render" },
+  { id: "publish", label: "Publish", shortLabel: "Publish" },
+  { id: "live", label: "Live", shortLabel: "Live" },
+];
+
+export const CHANNEL_META: Record<Episode["channel"], { name: string; emoji: string; accent: string }> = {
+  LO: { name: "Little Olympus", emoji: "🏛️", accent: "amber" },
+  IL: { name: "Iron Legends", emoji: "🤖", accent: "sky" },
+  ED: { name: "Empire Decoded", emoji: "📜", accent: "violet" },
+  GG: { name: "Gods & Glory", emoji: "⚡", accent: "indigo" },
+};
+
+export const APPROVAL_META: Record<ApprovalGate, { label: string; description: string }> = {
+  script: { label: "Script", description: "Story beats, pacing, and narration are ready." },
+  thumbnail: { label: "Thumbnail", description: "The selected cover communicates the hook." },
+  render: { label: "Render", description: "The final video export is checked." },
+  publish: { label: "Publish", description: "Distribution copy and links are ready." },
+};
+
+export const PUBLISH_PLATFORMS: { id: PublishPlatform; label: string }[] = [
+  { id: "youtube", label: "YouTube" },
+  { id: "instagram", label: "Instagram" },
+  { id: "facebook", label: "Facebook" },
+  { id: "x", label: "X" },
+  { id: "linkedin", label: "LinkedIn" },
+];
+
+const DEFAULT_APPROVALS: Record<ApprovalGate, GateApproval> = {
+  script: { status: "pending" },
+  thumbnail: { status: "pending" },
+  render: { status: "pending" },
+  publish: { status: "pending" },
+};
+
+const DEFAULT_THUMBNAIL_VARIANTS: ThumbnailVariant[] = [
+  { id: "a", label: "Variant A", status: "placeholder" },
+  { id: "b", label: "Variant B", status: "placeholder" },
+  { id: "c", label: "Variant C", status: "placeholder" },
+];
+
+const DEFAULT_PUBLISH_CHECKLIST: Record<PublishPlatform, boolean> = {
+  youtube: false,
+  instagram: false,
+  facebook: false,
+  x: false,
+  linkedin: false,
+};
+
+export function createEpisodeDefaults(overrides: Partial<Episode> = {}): Episode {
+  return {
+    ...overrides,
+    id: overrides.id || `EP_${Date.now()}`,
+    title: overrides.title || "Untitled episode",
+    scriptStatus: overrides.scriptStatus || "pending",
+    renderStatus: overrides.renderStatus || "pending",
+    uploadStatus: overrides.uploadStatus || "pending",
+    url: overrides.url || "",
+    views: overrides.views || 0,
+    duration: overrides.duration || "00:00",
+    channel: overrides.channel || "LO",
+    stage: overrides.stage || "ideas",
+    approvals: { ...DEFAULT_APPROVALS, ...overrides.approvals },
+    thumbnailVariants: overrides.thumbnailVariants?.length ? overrides.thumbnailVariants : DEFAULT_THUMBNAIL_VARIANTS,
+    publishChecklist: { ...DEFAULT_PUBLISH_CHECKLIST, ...overrides.publishChecklist },
+    createdAt: overrides.createdAt || new Date().toISOString(),
+  };
+}
+
+export function getBlockingGate(episode: Episode, targetStage: PipelineStage): ApprovalGate | null {
+  const currentIndex = PIPELINE_STAGES.findIndex(stage => stage.id === episode.stage);
+  const targetIndex = PIPELINE_STAGES.findIndex(stage => stage.id === targetStage);
+  if (targetIndex <= currentIndex) return null;
+
+  for (let index = currentIndex; index < targetIndex; index += 1) {
+    const stage = PIPELINE_STAGES[index].id;
+    if (stage !== "script" && stage !== "thumbnail" && stage !== "render" && stage !== "publish") continue;
+    if (episode.approvals[stage]?.status !== "approved") return stage;
+  }
+  return null;
+}
+
+function normalizeEpisode(raw: Partial<Episode>, fallbackIndex: number): Episode {
+  const inferredStage: PipelineStage =
+    raw.stage ||
+    (raw.uploadStatus === "done" ? "live" :
+      raw.renderStatus === "done" ? "publish" :
+        raw.renderStatus === "rendering" ? "render" :
+          raw.scriptStatus === "done" ? "thumbnail" : "ideas");
+
+  return createEpisodeDefaults({
+    ...raw,
+    id: raw.id || `EP_IMPORTED_${fallbackIndex + 1}`,
+    title: raw.title || "Imported episode",
+    stage: inferredStage,
+    createdAt: raw.createdAt || new Date().toISOString(),
+  });
+}
+
+function seedEpisodeSet(existing: Episode[]): Episode[] {
+  const seedEpisodes: Episode[] = [
+    createEpisodeDefaults({
+      id: "LO_EP001",
+      title: "Athena's Owl and the Missing Map",
+      channel: "LO",
+      stage: "ideas",
+      duration: "08:42",
+      intelSource: "Mythology Weekly",
+    }),
+    createEpisodeDefaults({
+      id: "IL_EP007",
+      title: "The Robot Cartoon That Predicted Our Future",
+      channel: "IL",
+      stage: "thumbnail",
+      scriptStatus: "done",
+      duration: "12:18",
+      approvals: {
+        ...DEFAULT_APPROVALS,
+        script: { status: "approved", updatedAt: new Date().toISOString() },
+      },
+      intelSource: "Retro Tech Archive",
+    }),
+    createEpisodeDefaults({
+      id: "ED_EP003",
+      title: "How Alexandria Kept Its Lighthouse Burning",
+      channel: "ED",
+      stage: "live",
+      scriptStatus: "done",
+      renderStatus: "done",
+      uploadStatus: "done",
+      renderProgress: 100,
+      duration: "14:06",
+      url: "https://youtube.com",
+      publishedAt: new Date().toISOString(),
+      approvals: {
+        script: { status: "approved", updatedAt: new Date().toISOString() },
+        thumbnail: { status: "approved", updatedAt: new Date().toISOString() },
+        render: { status: "approved", updatedAt: new Date().toISOString() },
+        publish: { status: "approved", updatedAt: new Date().toISOString() },
+      },
+      publishChecklist: {
+        youtube: true,
+        instagram: true,
+        facebook: false,
+        x: true,
+        linkedin: false,
+      },
+      intelSource: "History Today",
+    }),
+  ];
+
+  const byId = new Set(existing.map(episode => episode.id));
+  return [...existing, ...seedEpisodes.filter(episode => !byId.has(episode.id))];
 }
 
 const DEFAULT_PROJECTS: Project[] = [
@@ -95,10 +276,7 @@ const DEFAULT_MISSIONS: Mission[] = [
   { id: "m003", title: "Build frontend for new metrics dashboard", type: "code", status: "pending", assigned_to: "grok", target: "Dashboard", priority: 1, notes: "", projectId: "p3" },
 ];
 
-const DEFAULT_EPISODES: Episode[] = [
-  { id: "GG_EP012", title: "The Fall of Zeus", scriptStatus: "done", renderStatus: "done", uploadStatus: "done", url: "https://youtube.com/watch?v=123", views: 4500, duration: "10:24", channel: "GG" },
-  { id: "GG_EP013", title: "Ares Ascending", scriptStatus: "done", renderStatus: "rendering", uploadStatus: "pending", url: "", views: 0, duration: "11:05", channel: "GG" },
-];
+const DEFAULT_EPISODES: Episode[] = seedEpisodeSet([]);
 
 const INITIAL_STATE: AppState = {
   projects: DEFAULT_PROJECTS,
@@ -126,6 +304,8 @@ interface AppContextType extends AppState {
   deleteMission: (id: string) => void;
   updateEpisode: (id: string, updates: Partial<Episode>) => void;
   addEpisode: (episode: Episode) => void;
+  moveEpisode: (id: string, targetStage: PipelineStage) => void;
+  updateApproval: (id: string, gate: ApprovalGate, status: ApprovalStatus) => void;
   exportData: () => void;
   importData: (data: string) => void;
   clearData: () => void;
@@ -138,7 +318,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem("empire-os-state");
     if (saved) {
       try {
-        return { ...INITIAL_STATE, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        const savedEpisodes = Array.isArray(parsed.episodes)
+          ? parsed.episodes.map((episode: Partial<Episode>, index: number) => normalizeEpisode(episode, index))
+          : [];
+        return { ...INITIAL_STATE, ...parsed, episodes: seedEpisodeSet(savedEpisodes) };
       } catch (e) {
         console.error("Failed to parse state", e);
       }
@@ -200,14 +384,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
     missions: s.missions.filter(m => m.id !== id)
   }));
 
-  const updateEpisode = (id: string, updates: Partial<Episode>) => setState(s => ({
-    ...s,
-    episodes: s.episodes.map(e => e.id === id ? { ...e, ...updates } : e)
-  }));
+  const updateEpisode = (id: string, updates: Partial<Episode>) => setState(s => {
+    const nextEpisodes = s.episodes.map(e => e.id === id ? { ...e, ...updates } : e);
+    const changed = nextEpisodes.some((episode, index) => episode !== s.episodes[index] && JSON.stringify(episode) !== JSON.stringify(s.episodes[index]));
+    return changed ? { ...s, episodes: nextEpisodes } : s;
+  });
 
   const addEpisode = (episode: Episode) => setState(s => ({
     ...s,
-    episodes: [...s.episodes, episode]
+    episodes: [...s.episodes, createEpisodeDefaults(episode)]
+  }));
+
+  const moveEpisode = (id: string, targetStage: PipelineStage) => setState(s => {
+    const episode = s.episodes.find(item => item.id === id);
+    if (!episode || getBlockingGate(episode, targetStage)) return s;
+    const nextEpisodes = s.episodes.map(item => {
+      if (item.id !== id) return item;
+      const updates: Partial<Episode> = { stage: targetStage };
+      if (targetStage === "render" && item.renderStatus === "pending") updates.renderStatus = "rendering";
+      if (targetStage === "live") {
+        updates.renderStatus = "done";
+        updates.uploadStatus = "done";
+        updates.renderProgress = 100;
+        updates.publishedAt = item.publishedAt || new Date().toISOString();
+      }
+      return { ...item, ...updates };
+    });
+    return { ...s, episodes: nextEpisodes };
+  });
+
+  const updateApproval = (id: string, gate: ApprovalGate, status: ApprovalStatus) => setState(s => ({
+    ...s,
+    episodes: s.episodes.map(episode => {
+      if (episode.id !== id) return episode;
+      const approvalUpdates: Partial<Episode> = {
+        approvals: {
+          ...episode.approvals,
+          [gate]: { status, updatedAt: new Date().toISOString() },
+        },
+      };
+      if (gate === "script") approvalUpdates.scriptStatus = status === "approved" ? "done" : "pending";
+      if (gate === "render" && status === "approved") approvalUpdates.renderStatus = "done";
+      if (gate === "publish" && status === "approved") approvalUpdates.uploadStatus = "done";
+      return { ...episode, ...approvalUpdates };
+    }),
   }));
 
   const exportData = () => {
@@ -221,7 +441,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const importData = (data: string) => {
     try {
       const parsed = JSON.parse(data);
-      setState({ ...INITIAL_STATE, ...parsed });
+      const importedEpisodes = Array.isArray(parsed.episodes)
+        ? parsed.episodes.map((episode: Partial<Episode>, index: number) => normalizeEpisode(episode, index))
+        : [];
+      setState({ ...INITIAL_STATE, ...parsed, episodes: seedEpisodeSet(importedEpisodes) });
     } catch (e) {
       alert("Invalid backup file");
     }
@@ -248,6 +471,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteMission,
       updateEpisode,
       addEpisode,
+      moveEpisode,
+      updateApproval,
       exportData,
       importData,
       clearData
